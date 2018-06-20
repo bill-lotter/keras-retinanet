@@ -25,7 +25,7 @@ import numpy as np
 # Allow relative imports when being executed as script.
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-    import keras_retinanet.bin
+    import keras_retinanet.bin  # noqa: F401
     __package__ = "keras_retinanet.bin"
 
 # Change these to absolute imports if you copy this script outside the keras_retinanet package.
@@ -38,6 +38,11 @@ from ..utils.visualization import draw_annotations, draw_boxes
 
 
 def create_generator(args):
+    """ Create the data generators.
+
+    Args:
+        args: parseargs arguments object.
+    """
     # create random transform generator for augmenting training data
     transform_generator = random_transform_generator(
         min_rotation=-0.1,
@@ -59,19 +64,25 @@ def create_generator(args):
         generator = CocoGenerator(
             args.coco_path,
             args.coco_set,
-            transform_generator=transform_generator
+            transform_generator=transform_generator,
+            image_min_side=args.image_min_side,
+            image_max_side=args.image_max_side
         )
     elif args.dataset_type == 'pascal':
         generator = PascalVocGenerator(
             args.pascal_path,
             args.pascal_set,
-            transform_generator=transform_generator
+            transform_generator=transform_generator,
+            image_min_side=args.image_min_side,
+            image_max_side=args.image_max_side
         )
     elif args.dataset_type == 'csv':
         generator = CSVGenerator(
             args.annotations,
             args.classes,
-            transform_generator=transform_generator
+            transform_generator=transform_generator,
+            image_min_side=args.image_min_side,
+            image_max_side=args.image_max_side
         )
     elif args.dataset_type == 'oid':
         generator = OpenImagesGenerator(
@@ -81,13 +92,17 @@ def create_generator(args):
             labels_filter=args.labels_filter,
             fixed_labels=args.fixed_labels,
             annotation_cache_dir=args.annotation_cache_dir,
-            transform_generator=transform_generator
+            transform_generator=transform_generator,
+            image_min_side=args.image_min_side,
+            image_max_side=args.image_max_side
         )
     elif args.dataset_type == 'kitti':
         generator = KittiGenerator(
             args.kitti_path,
             subset=args.subset,
-            transform_generator=transform_generator
+            transform_generator=transform_generator,
+            image_min_side=args.image_min_side,
+            image_max_side=args.image_max_side
         )
     else:
         raise ValueError('Invalid data type received: {}'.format(args.dataset_type))
@@ -96,6 +111,8 @@ def create_generator(args):
 
 
 def parse_args(args):
+    """ Parse the arguments.
+    """
     parser     = argparse.ArgumentParser(description='Debug script for a RetinaNet network.')
     subparsers = parser.add_subparsers(help='Arguments for specific dataset types.', dest='dataset_type')
     subparsers.required = True
@@ -132,11 +149,19 @@ def parse_args(args):
     parser.add_argument('--anchors', help='Show positive anchors on the image.', action='store_true')
     parser.add_argument('--annotations', help='Show annotations on the image. Green annotations have anchors, red annotations don\'t and therefore don\'t contribute to training.', action='store_true')
     parser.add_argument('--random-transform', help='Randomly transform image and annotations.', action='store_true')
+    parser.add_argument('--image-min-side', help='Rescale the image so the smallest side is min_side.', type=int, default=800)
+    parser.add_argument('--image-max-side', help='Rescale the image if the largest side is larger than max_side.', type=int, default=1333)
 
     return parser.parse_args(args)
 
 
 def run(generator, args):
+    """ Main loop.
+
+    Args
+        generator: The generator to debug.
+        args: parseargs args object.
+    """
     # display images, one at a time
     for i in range(generator.size()):
         # load the data
@@ -190,6 +215,7 @@ def main(args=None):
             pass
     else:
         run(generator, args)
+
 
 if __name__ == '__main__':
     main()
