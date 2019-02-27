@@ -67,7 +67,7 @@ class ResNetBackbone(Backbone):
             raise ValueError('Backbone (\'{}\') not in allowed backbones ({}).'.format(backbone, allowed_backbones))
 
 
-def resnet_retinanet(num_classes, backbone='resnet50', inputs=None, modifier=None, **kwargs):
+def resnet_retinanet(num_classes, backbone='resnet50', inputs=None, modifier=None, is_siamese=False, **kwargs):
     """ Constructs a retinanet model using a resnet backbone.
 
     Args
@@ -93,12 +93,28 @@ def resnet_retinanet(num_classes, backbone='resnet50', inputs=None, modifier=Non
     else:
         raise ValueError('Backbone (\'{}\') is invalid.'.format(backbone))
 
+    if is_siamese:
+        inputs0 = keras.layers.Input(shape=(None, None, 3))
+        inputs1 = keras.layers.Input(shape=(None, None, 3))
+        feats0 = resnet(inputs0)
+        feats1 = resnet(inputs1)
+
+        if isinstance(is_siamese, str) and is_siamese == 'concat':
+            outs = [keras.layers.Concatenate()([feats0[1], feats1[1]]), keras.layers.Concatenate()([feats0[2], feats1[2]]), keras.layers.Concatenate()([feats0[3], feats1[3]])]
+        else:
+            outs = [keras.layers.Subtract()([feats0[1], feats1[1]]), keras.layers.Subtract()([feats0[2], feats1[2]]), keras.layers.Subtract()([feats0[3], feats1[3]])]
+        inputs = [inputs0, inputs1]
+        resnet = keras.models.Model(inputs=inputs, outputs=outs)
+        outs = resnet.outputs
+    else:
+        outs = resnet.outputs[1:]
+
     # invoke modifier if given
     if modifier:
         resnet = modifier(resnet)
 
     # create the full model
-    return retinanet.retinanet(inputs=inputs, num_classes=num_classes, backbone_layers=resnet.outputs[1:], **kwargs)
+    return retinanet.retinanet(inputs=inputs, num_classes=num_classes, backbone_layers=outs, **kwargs)
 
 
 def resnet50_retinanet(num_classes, inputs=None, **kwargs):

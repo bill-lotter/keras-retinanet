@@ -59,19 +59,29 @@ def default_classification_model(
             **options
         )(outputs)
 
-    outputs = keras.layers.Conv2D(
-        filters=num_classes * num_anchors,
-        kernel_initializer=keras.initializers.zeros(),
-        bias_initializer=initializers.PriorProbability(probability=prior_probability),
-        name='pyramid_classification',
-        **options
-    )(outputs)
+    if not type(num_classes) in [tuple, list]:
+        num_classes = [num_classes]
 
-    # reshape output and apply sigmoid
-    outputs = keras.layers.Reshape((-1, num_classes), name='pyramid_classification_reshape')(outputs)
-    outputs = keras.layers.Activation('sigmoid', name='pyramid_classification_sigmoid')(outputs)
+    all_outputs = []
+    for i, n in enumerate(num_classes):
+        tag = '' if i == 0 else '_' + str(i) + '_' + str(n)
+        outs = keras.layers.Conv2D(
+            filters=n * num_anchors,
+            kernel_initializer=keras.initializers.zeros(),
+            bias_initializer=initializers.PriorProbability(probability=prior_probability),
+            name='pyramid_classification' + tag,
+            **options
+        )(outputs)
 
-    return keras.models.Model(inputs=inputs, outputs=outputs, name=name)
+        # reshape output and apply sigmoid
+        outs = keras.layers.Reshape((-1, n), name='pyramid_classification_reshape' + tag)(outs)
+        outs = keras.layers.Activation('sigmoid', name='pyramid_classification_sigmoid' + tag)(outs)
+        all_outputs.append(outs)
+
+    if len(num_classes) == 1:
+        all_outputs = all_outputs[0]
+
+    return keras.models.Model(inputs=inputs, outputs=all_outputs, name=name)
 
 
 def default_regression_model(num_anchors, pyramid_feature_size=256, regression_feature_size=256, name='regression_submodel'):
@@ -210,7 +220,14 @@ def __build_model_pyramid(name, model, features):
     Returns
         A tensor containing the response from the submodel on the FPN features.
     """
-    return keras.layers.Concatenate(axis=1, name=name)([model(f) for f in features])
+    outs = [model(f) for f in features]
+    if type(outs[0]) is list:
+        layers = []
+        for v in range(len(outs[0])):
+            layers.append(keras.layers.Concatenate(axis=1, name=name + '_' + str(v))([l[v] for l in outs]))
+        return layers
+    else:
+        return keras.layers.Concatenate(axis=1, name=name)(outs)
 
 
 def __build_pyramid(models, features):
@@ -295,6 +312,8 @@ def retinanet(
 
     # for all pyramid levels, run available submodels
     pyramids = __build_pyramid(submodels, features)
+    if type(pyramids[1]) is list:
+        pyramids = [pyramids[0]] + pyramids[1]
 
     return keras.models.Model(inputs=inputs, outputs=pyramids, name=name)
 
@@ -307,6 +326,7 @@ def retinanet_bbox(
     score_threshold   = 0.05,
     max_detections    = 300,
     nms_threshold     = 0.5,
+    return_boxes      = False,
     **kwargs
 ):
     """ Construct a RetinaNet model on top of a backbone and adds convenience functions to output boxes directly.
@@ -348,10 +368,14 @@ def retinanet_bbox(
     boxes = layers.RegressBoxes(name='boxes')([anchors, regression])
     boxes = layers.ClipBoxes(name='clipped_boxes')([model.inputs[0], boxes])
 
-    # filter detections (apply NMS / score threshold / select top-k)
-    detections = layers.FilterDetections(nms=nms, name='filtered_detections', score_threshold=score_threshold, max_detections=max_detections, nms_threshold=nms_threshold)([boxes, classification] + other)
+    if return_boxes:
+        return keras.models.Model(inputs=model.inputs, outputs=[boxes, classification, anchors], name=name)
+    else:
 
-    outputs = detections
+        # filter detections (apply NMS / score threshold / select top-k)
+        detections = layers.FilterDetections(nms=nms, name='filtered_detections', score_threshold=score_threshold, max_detections=max_detections, nms_threshold=nms_threshold)([boxes, classification] + other)
 
-    # construct the model
-    return keras.models.Model(inputs=model.inputs, outputs=outputs, name=name)
+        outputs = detections
+
+        # construct the model
+        return keras.models.Model(inputs=model.inputs, outputs=outputs, name=name)
